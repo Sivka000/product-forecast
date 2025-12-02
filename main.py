@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 import seaborn as sns
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from statsmodels.tsa.statespace.sarimax import SARIMAX
@@ -347,31 +348,81 @@ with col_main2:
                 else:
                     st.error("❌ Низька точність. Спробуйте іншу модель або параметри.")
 
-            # Графік
-            fig_res, ax_res = plt.subplots(figsize=(10, 5))
+            # --- СУЧАСНИЙ ГРАФІК (PLOTLY) ---
+            st.subheader("Інтерактивний графік")
             
-            # Показуємо історію
-            start_plot = df_prod.index[-36] if len(df_prod) > 36 else df_prod.index[0]
-            ax_res.plot(df_prod[start_plot:].index, df_prod[start_plot:], label='Історичні дані')
-            
-            if test is not None:
-                 ax_res.plot(test.index, preds_test, color='green', linestyle='--', label='Тест (перевірка)')
-                 
-            # Прогноз
-            ax_res.plot(future_forecast.index, future_forecast, color='red', marker='o', linewidth=2, label=f'Прогноз ({model_type})')
-            
-            ax_res.legend()
-            ax_res.grid(True, alpha=0.3)
-            ax_res.set_title(f"Прогноз ціни на {forecast_steps} міс.")
-            st.pyplot(fig_res)
+            fig = go.Figure()
 
-            # Таблиця
+            # 1. Історичні дані
+            # Показуємо всю історію, але за замовчуванням зум буде на останні роки
+            fig.add_trace(go.Scatter(
+                x=df_prod.index, 
+                y=df_prod.values,
+                mode='lines',
+                name='Історичні дані',
+                line=dict(color='royalblue', width=2)
+            ))
+
+            # 2. Тестовий прогноз (якщо є)
+            if test is not None:
+                fig.add_trace(go.Scatter(
+                    x=test.index, 
+                    y=preds_test,
+                    mode='lines+markers',
+                    name='Тест (перевірка)',
+                    line=dict(color='orange', width=2, dash='dot'),
+                    marker=dict(size=6)
+                ))
+
+            # 3. Прогноз на майбутнє
+            fig.add_trace(go.Scatter(
+                x=future_forecast.index, 
+                y=future_forecast.values,
+                mode='lines+markers',
+                name=f'ПРОГНОЗ ({model_type})',
+                line=dict(color='red', width=3),
+                marker=dict(size=8, symbol='circle')
+            ))
+
+            # Налаштування макету (Layout)
+            fig.update_layout(
+                title=f"Прогноз ціни: {target_product}",
+                xaxis_title="Дата",
+                yaxis_title="Ціна (грн)",
+                hovermode="x unified", # Зручна підказка при наведенні
+                legend=dict(
+                    yanchor="top",
+                    y=0.99,
+                    xanchor="left",
+                    x=0.01
+                ),
+                # Слайдер діапазону знизу
+                xaxis=dict(
+                    rangeselector=dict(
+                        buttons=list([
+                            dict(count=6, label="6 міс", step="month", stepmode="backward"),
+                            dict(count=1, label="1 рік", step="year", stepmode="backward"),
+                            dict(count=3, label="3 роки", step="year", stepmode="backward"),
+                            dict(step="all", label="Вся історія")
+                        ])
+                    ),
+                    rangeslider=dict(visible=True), # Повзунок
+                    type="date"
+                )
+            )
+
+            # Відображення в Streamlit
+            st.plotly_chart(fig, use_container_width=True)
+
+            #Таблиця
             with st.expander("Переглянути точні цифри прогнозу"):
                 # Створюємо чистий DataFrame, форматуємо дату без часу
                 res_df = pd.DataFrame({
                     'Дата': future_forecast.index.strftime('%Y-%m-%d'), 
                     'Прогнозована ціна': future_forecast.values
                 })
+                res_df.index = range(1, len(res_df) + 1)
+                res_df.index.name = "№"
                 # Явно вказуємо порядок колонок та формат
                 st.dataframe(res_df.style.format({"Прогнозована ціна": "{:.2f}"}), use_container_width=True)
 
