@@ -449,16 +449,19 @@ with tab2:
 
                 # Налаштування макету (Layout)
                 fig.update_layout(
-                    title=f"Прогноз ціни: {target_product}",
+                    title=f"Прогноз: {target_product}",
                     xaxis_title="Дата",
                     yaxis_title="Ціна (грн)",
-                    hovermode="x unified", # Зручна підказка при наведенні
+                    hovermode="x unified",
+                    
                     legend=dict(
-                        yanchor="top",
-                        y=0.99,
-                        xanchor="left",
-                        x=0.01
+                        orientation="h",      # Горизонтальне розташування
+                        yanchor="bottom",
+                        y=-0.5,               # Зсуваємо під слайдер часу
+                        xanchor="center",
+                        x=0.5                 # По центру
                     ),
+
                     # Слайдер діапазону знизу
                     xaxis=dict(
                         rangeselector=dict(
@@ -469,9 +472,12 @@ with tab2:
                                 dict(step="all", label="Вся історія")
                             ])
                         ),
+                        
                         rangeslider=dict(visible=True), # Повзунок
                         type="date"
-                    )
+                    ),
+                    # Додаємо трохи відступу знизу, щоб легенда влізла
+                    margin=dict(b=100)
                 )
 
                 # Відображення в Streamlit
