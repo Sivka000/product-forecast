@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.metrics import mean_absolute_error
 import warnings
@@ -171,94 +172,136 @@ if df is not None and not df.empty:
         plt.grid(True)
         st.pyplot(fig)
 
-    # --- 3. НАВЧАННЯ МОДЕЛІ (ARIMA) ---
-    st.header("Прогноз")
     
-    target_product = st.selectbox("Оберіть продукт для прогнозування:", all_products)
+    # --- 3. ПРОГНОЗ ТА МОДЕЛЮВАННЯ ---
+st.header("3. Прогноз та Моделювання")
+
+col_main1, col_main2 = st.columns([1, 3])
+
+with col_main1:
+    target_product = st.selectbox("Продукт для прогнозу:", all_products)
     
-    # Підготовка ряду
-    df_prod = df[df['Product_Name'] == target_product].set_index('Date')['Price']
-    df_prod = df_prod.asfreq('MS') # Встановлюємо частоту (початок місяця)
+    st.markdown("---")
+    st.markdown("**Налаштування Моделі**")
     
-    # Якщо після asfreq з'явилися NaN (через пропущені місяці), заповнюємо їх
-    if df_prod.isna().sum() > 0:
-         df_prod = df_prod.fillna(method='ffill')
+    # --- ВИБІР МОДЕЛІ (НОВЕ) ---
+    model_type = st.selectbox(
+        "Оберіть алгоритм прогнозу:",
+        ["ARIMA (Класичний)", "Holt-Winters (Трендовий)"]
+    )
+    
+    # Параметри змінюються залежно від моделі
+    if model_type == "ARIMA (Класичний)":
+        p = st.number_input("p (AR - минуле)", 0, 10, 2)
+        d = st.number_input("d (I - тренд)", 0, 5, 1)
+        q = st.number_input("q (MA - шоки)", 0, 10, 2)
+    else:
+        # Для Holt-Winters параметри простіші
+        seasonal_periods = st.number_input("Сезонність (міс)", 6, 24, 12, help="12 для річної сезонності")
+        trend_type = st.selectbox("Тип тренду", ["add", "mul"], index=0, help="'add' для стабільного росту, 'mul' для прискореного")
+    
+    forecast_steps = st.slider("Період прогнозу (міс)", 1, 12, 12)
+    
+    run_btn = st.button("🔴 Розрахувати Прогноз")
 
-    # Налаштування параметрів
-    st.sidebar.subheader("Параметри моделі ARIMA")
-    p = st.sidebar.number_input("p (Autoregression)", 0, 10, 5, key='p')
-    d = st.sidebar.number_input("d (Integration)", 0, 5, 3, key='d')
-    q = st.sidebar.number_input("q (Moving Average)", 0, 10, 5, key='q')
-    forecast_steps = st.sidebar.slider("Період прогнозу (міс)", 1, 12, 12)
+with col_main2:
+    if run_btn:
+        # Підготовка даних
+        df_prod = df[df['Product_Name'] == target_product].set_index('Date')['Price']
+        # Важливо: Holt-Winters вимагає строгої частоти без пропусків
+        df_prod = df_prod.asfreq('MS').fillna(method='ffill')
 
-    if st.button("Розрахувати прогноз"):
-        with st.spinner('Тренування моделі...'):
-            try:
-                # Розділення на тренувальну і тестову (останні 6 місяців для тесту)
-                test_size = 6
-                if len(df_prod) > test_size * 2:
-                    train = df_prod[:-test_size]
-                    test = df_prod[-test_size:]
-                else:
-                    train = df_prod
-                    test = None
+        try:
+            # Розбиття на тест/трейн
+            test_size = 6
+            if len(df_prod) > test_size * 2:
+                train, test = df_prod[:-test_size], df_prod[-test_size:]
+            else:
+                train, test = df_prod, None
 
-                # Навчання моделі
+            st.subheader(f"Результат ({model_type}): {target_product}")
+
+            # --- ЛОГІКА МОДЕЛЕЙ ---
+            if model_type == "ARIMA (Класичний)":
                 model = ARIMA(train, order=(p, d, q))
                 model_fit = model.fit()
-
-                # Оцінка
-                col1, col2 = st.columns(2)
-                
+                # Прогноз на тест
                 if test is not None:
-                    predictions_test = model_fit.forecast(steps=len(test))
-                    mae = mean_absolute_error(test, predictions_test)
-                    mape = np.mean(np.abs(predictions_test - test) / np.abs(test)) * 100
-                    
-                    with col1:
-                        st.subheader("Точність (на тестових даних)")
-                        st.metric("Середня похибка (MAE)", f"{mae:.2f} грн")
-                        st.metric("Відсоток похибки (MAPE)", f"{mape:.2f}%")
-                
-                # Фінальний прогноз на майбутнє
+                    preds_test = model_fit.forecast(steps=len(test))
+                # Фінальний прогноз
                 final_model = ARIMA(df_prod, order=(p, d, q))
                 final_fit = final_model.fit()
                 future_forecast = final_fit.forecast(steps=forecast_steps)
                 
-                # Вивід таблиці прогнозу
-                future_df = pd.DataFrame({
-                    'Дата': future_forecast.index,
-                    'Прогноз ціни': future_forecast.values
-                })
+            else: # Holt-Winters
+                # 'add' - адитивний (звичайний), 'mul' - мультиплікативний (складний відсоток)
+                seasonal_type = 'add' 
                 
-                with col2:
-                    st.subheader(f"Прогноз на {forecast_steps} міс.")
-                    st.dataframe(future_df.style.format({"Прогноз ціни": "{:.2f}"}))
-
-                # Графік
-                st.subheader("Візуалізація Прогнозу")
-                fig2, ax2 = plt.subplots(figsize=(12, 6))
+                model = ExponentialSmoothing(
+                    train, 
+                    trend=trend_type, 
+                    seasonal=seasonal_type, 
+                    seasonal_periods=seasonal_periods
+                )
+                model_fit = model.fit()
                 
-                # Історія (останні 2 роки для кращої видимості)
-                display_start_date = df_prod.index[-24] if len(df_prod) > 24 else df_prod.index[0]
-                history_subset = df_prod[df_prod.index >= display_start_date]
-                
-                ax2.plot(history_subset.index, history_subset, label='Історичні дані')
-                
+                # Прогноз на тест
                 if test is not None:
-                    # Показуємо, як модель вгадала тестовий період
-                    ax2.plot(test.index, predictions_test, color='green', linestyle='--', label='Тестовий прогноз (перевірка)')
+                    preds_test = model_fit.forecast(steps=len(test))
                 
-                # Майбутній прогноз
-                ax2.plot(future_forecast.index, future_forecast, color='red', marker='o', label='Прогноз на майбутнє')
+                # Фінальний прогноз
+                final_model = ExponentialSmoothing(
+                    df_prod, 
+                    trend=trend_type, 
+                    seasonal=seasonal_type, 
+                    seasonal_periods=seasonal_periods
+                )
+                final_fit = final_model.fit()
+                future_forecast = final_fit.forecast(steps=forecast_steps)
+
+            # --- ВІДОБРАЖЕННЯ РЕЗУЛЬТАТІВ (Спільне для обох моделей) ---
+            
+            # Метрики точності
+            if test is not None:
+                mae = mean_absolute_error(test, preds_test)
+                mape = np.mean(np.abs(preds_test - test) / np.abs(test)) * 100
                 
-                ax2.set_title(f"Прогноз ціни: {target_product}")
-                ax2.set_ylabel("Ціна (грн)")
-                ax2.legend()
-                ax2.grid(True, alpha=0.3)
-                st.pyplot(fig2)
+                m1, m2 = st.columns(2)
+                m1.metric("MAE (Похибка в грн)", f"{mae:.2f}")
+                m2.metric("MAPE (Похибка в %)", f"{mape:.2f}%")
+                
+                # Пояснення для користувача
+                if mape < 5:
+                    st.success("✅ Висока точність прогнозу!")
+                elif mape < 15:
+                    st.warning("⚠️ Середня точність. Можливі відхилення.")
+                else:
+                    st.error("❌ Низька точність. Спробуйте іншу модель або параметри.")
 
-            except Exception as e:
-                st.error(f"Помилка при навчанні моделі: {e}. Спробуйте змінити параметри p, d, q.")
+            # Графік
+            fig_res, ax_res = plt.subplots(figsize=(10, 5))
+            
+            # Показуємо історію
+            start_plot = df_prod.index[-36] if len(df_prod) > 36 else df_prod.index[0]
+            ax_res.plot(df_prod[start_plot:].index, df_prod[start_plot:], label='Історичні дані')
+            
+            if test is not None:
+                 ax_res.plot(test.index, preds_test, color='green', linestyle='--', label='Тест (перевірка)')
+                 
+            # Прогноз
+            ax_res.plot(future_forecast.index, future_forecast, color='red', marker='o', linewidth=2, label=f'Прогноз ({model_type})')
+            
+            ax_res.legend()
+            ax_res.grid(True, alpha=0.3)
+            ax_res.set_title(f"Прогноз ціни на {forecast_steps} міс.")
+            st.pyplot(fig_res)
 
+            # Таблиця
+            with st.expander("Переглянути точні цифри прогнозу"):
+                res_df = pd.DataFrame({'Дата': future_forecast.index, 'Прогнозована ціна': future_forecast.values})
+                st.dataframe(res_df.style.format({"Прогнозована ціна": "{:.2f}"}))
+
+        except Exception as e:
+            st.error(f"Помилка розрахунку: {e}. Спробуйте змінити параметри або тип тренду.")
+    
 st.markdown("---")
