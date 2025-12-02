@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 import seaborn as sns
+from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.arima.model import ARIMA
@@ -18,6 +19,9 @@ st.set_page_config(page_title="Прогноз цін (Сумська обл.)", 
 
 st.title("📊 Прогнозування цін на товари")
 st.markdown("Аналіз та прогноз цін на основі завантаженого датасету.")
+
+# Створюємо вкладки
+tab1, tab2, tab3 = st.tabs(["📊 Аналіз історії", "🔮 Прогноз", "ℹ️ Інфо"])
 
 # --- 1. ЗАВАНТАЖЕННЯ ТА ОБРОБКА ДАНИХ ---
 st.sidebar.header("Налаштування")
@@ -155,7 +159,8 @@ st.sidebar.info(
 st.sidebar.link_button("Перейти на Держстат 🔗", "https://stat.gov.ua/uk/explorer")
 
 # --- 2. EDA (АНАЛІЗ ДАНИХ) ---
-st.header("Аналіз Даних")
+with tab1:
+   st.header("Аналіз Даних ")
 
 if df is not None and not df.empty:
     # Статистика
@@ -182,9 +187,11 @@ if df is not None and not df.empty:
         plt.grid(True)
         st.pyplot(fig)
 
-    
+
+
     # --- 3. ПРОГНОЗ ТА МОДЕЛЮВАННЯ ---
-st.header("Прогноз")
+with tab2:
+    st.header("Прогноз")
 
 col_main1, col_main2 = st.columns([1, 3])
 
@@ -425,6 +432,30 @@ with col_main2:
                 res_df.index.name = "№"
                 # Явно вказуємо порядок колонок та формат
                 st.dataframe(res_df.style.format({"Прогнозована ціна": "{:.2f}"}), use_container_width=True)
+
+            # Таблиця та Завантаження
+            with st.expander("Переглянути точні цифри та завантажити"):
+                res_df = pd.DataFrame({
+                    'Дата': future_forecast.index.strftime('%Y-%m-%d'), 
+                    'Прогнозована ціна': future_forecast.values
+                })
+                res_df.index = range(1, len(res_df) + 1)
+                res_df.index.name = "№"
+                
+                # Показуємо таблицю
+                st.dataframe(res_df.style.format({"Прогнозована ціна": "{:.2f}"}), use_container_width=True)
+                
+                # --- НОВЕ: Кнопка завантаження ---
+                # Конвертуємо в CSV
+                csv_data = res_df.to_csv().encode('utf-8')
+                
+                st.download_button(
+                    label="📥 Завантажити прогноз (CSV)",
+                    data=csv_data,
+                    file_name=f'forecast_{target_product}.csv',
+                    mime='text/csv',
+                    help="Натисніть, щоб зберегти таблицю для Excel"
+                )
 
         except Exception as e:
             st.error(f"Помилка розрахунку: {e}. Спробуйте змінити параметри або тип тренду.")
