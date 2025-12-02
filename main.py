@@ -160,304 +160,360 @@ st.sidebar.link_button("Перейти на Держстат 🔗", "https://sta
 
 # --- 2. EDA (АНАЛІЗ ДАНИХ) ---
 with tab1:
-   st.header("Аналіз Даних ")
-
-if df is not None and not df.empty:
-    # Статистика
-    st.subheader("Огляд даних")
-    st.write(f"Діапазон дат: з {df['Date'].min().date()} по {df['Date'].max().date()}")
-    st.write(f"Всього записів: {len(df)}")
-    
-    # Перевірка на пропуски
-    missing_count = df['Price'].isna().sum()
-    if missing_count > 0:
-        st.warning(f"Знайдено {missing_count} пропусків у цінах. Виправлено!")
-        df['Price'] = df.groupby('Product_Name')['Price'].fillna(method='ffill')
-        # Якщо на початку є пропуски, заповнюємо 'bfill'
-        df['Price'] = df.groupby('Product_Name')['Price'].fillna(method='bfill')
-    
-    # Вибір продуктів для візуалізації
-    all_products = df['Product_Name'].unique()
-    selected_products_viz = st.multiselect("Оберіть продукти для порівняння графіків:", all_products, default=all_products[:2])
-    
-    if selected_products_viz:
-        fig, ax = plt.subplots(figsize=(10, 5))
-        sns.lineplot(data=df[df['Product_Name'].isin(selected_products_viz)], x='Date', y='Price', hue='Product_Name', ax=ax)
-        plt.title("Динаміка цін")
-        plt.grid(True)
-        st.pyplot(fig)
-
-
+    st.header("Аналіз Даних ")
+    if df is not None and not df.empty:
+        # Статистика
+        st.subheader("Огляд даних")
+        st.write(f"Діапазон дат: з {df['Date'].min().date()} по {df['Date'].max().date()}")
+        st.write(f"Всього записів: {len(df)}")
+        
+        # Перевірка на пропуски
+        missing_count = df['Price'].isna().sum()
+        if missing_count > 0:
+            st.warning(f"Знайдено {missing_count} пропусків у цінах. Виправлено!")
+            df['Price'] = df.groupby('Product_Name')['Price'].fillna(method='ffill')
+            # Якщо на початку є пропуски, заповнюємо 'bfill'
+            df['Price'] = df.groupby('Product_Name')['Price'].fillna(method='bfill')
+        
+        # Вибір продуктів для візуалізації
+        all_products = df['Product_Name'].unique()
+        selected_products_viz = st.multiselect("Оберіть продукти для порівняння графіків:", all_products, default=all_products[:2])
+        
+        if selected_products_viz:
+            fig, ax = plt.subplots(figsize=(10, 5))
+            sns.lineplot(data=df[df['Product_Name'].isin(selected_products_viz)], x='Date', y='Price', hue='Product_Name', ax=ax)
+            plt.title("Динаміка цін")
+            plt.grid(True)
+            st.pyplot(fig)
 
     # --- 3. ПРОГНОЗ ТА МОДЕЛЮВАННЯ ---
 with tab2:
     st.header("Прогноз")
 
-col_main1, col_main2 = st.columns([1, 3])
+    col_main1, col_main2 = st.columns([1, 3])
 
-with col_main1:
-    target_product = st.selectbox("Продукт для прогнозу:", all_products)
-    
-    st.markdown("---")
-    st.markdown("**Налаштування Моделі**")
-    
-    # --- ВИБІР МОДЕЛІ ---
-    model_type = st.selectbox(
-        "Оберіть алгоритм прогнозу:",
-        ["ARIMA (Класичний)", "Holt-Winters (Трендовий)", "SARIMA (Сезонний)"]
-    )
-    
-    # Параметри змінюються залежно від моделі
-    if model_type == "ARIMA (Класичний)":
-        # p - Autoregression
-        p = st.number_input(
-            "p (AR - Пам'ять)", 
-            min_value=0, max_value=24, value=2,
-            help="На скільки місяців назад дивитися? \n\n"
-                 "• 1-2: Ціна залежить від останніх місяців.\n"
-                 "• 12: Ціна повторює минулорічну (сезонність)."
+    with col_main1:
+        target_product = st.selectbox("Продукт для прогнозу:", all_products)
+        
+        st.markdown("---")
+        st.markdown("**Налаштування Моделі**")
+        
+        
+
+        # --- ВИБІР МОДЕЛІ ---
+        model_type = st.selectbox(
+            "Оберіть алгоритм прогнозу:",
+            ["ARIMA (Класичний)", "Holt-Winters (Трендовий)", "SARIMA (Сезонний)"]
         )
         
-        # d - Integration
-        d = st.number_input(
-            "d (I - Тренд)", 
-            min_value=0, max_value=2, value=1,
-            help="Як поводиться ціна глобально?\n\n"
-                 "• 0: Ціна стабільна (коливається навколо однієї суми).\n"
-                 "• 1: Ціна постійно росте або падає (стандарт для інфляції).\n"
-                 "• 2: Швидкий, прискорений ріст."
-        )
-        
-        # q - Moving Average
-        q = st.number_input(
-            "q (MA - Згладжування)", 
-            min_value=0, max_value=24, value=2,
-            help="Як реагувати на раптові стрибки?\n\n"
-                 "• 0: Реагувати миттєво (графік рваний).\n"
-                 "• 1-3: Згладжувати випадкові коливання."
-        )
-
-        with st.expander("ℹ️ Як підібрати параметри? (Шпаргалка)"):
-            st.markdown("""
-            * **Для стабільних товарів:** p=1, d=0, q=1
-            * **Для товарів, що дорожчають (інфляція):** p=2, d=1, q=2
-            * **Для сезонних (овочі/фрукти):** Спробуйте збільшити p до 12.
-            """)
-
-    elif model_type == "SARIMA (Сезонний)":
-        st.info("Налаштування складаються з двох частин: Звичайні та Сезонні (Річні).")
-        
-        col_s1, col_s2 = st.columns(2)
-        with col_s1:
-            st.markdown("**Звичайні (p,d,q)**")
-            p = st.number_input("p", 0, 5, 1, key="sp", help="Як поточний місяць залежить від попереднього.")
-            d = st.number_input("d", 0, 2, 1, key="sd", help="Чи є загальний тренд росту/спаду?")
-            q = st.number_input("q", 0, 5, 1, key="sq", help="Корекція помилок минулого місяця.")
-        
-        with col_s2:
-            st.markdown("**Сезонні (P,D,Q)**")
-            P = st.number_input("P (Сезонний)", 0, 5, 1, help="Зв'язок з цим же місяцем минулого року.")
-            D = st.number_input("D (Сезонний)", 0, 2, 1, help="Чи змінюється сезонність з роками?")
-            Q = st.number_input("Q (Сезонний)", 0, 5, 0, help="Корекція сезонних викидів.")
-            s = st.number_input("s (Період)", 2, 24, 12, help="12 для місячних даних (річний цикл).")
-
-    else:
-        # Для Holt-Winters параметри простіші
-        seasonal_periods = st.slider("Сезонність (міс)", 6, 24, 12, help="12 для річної сезонності")
-        trend_type = st.selectbox("Тип тренду", ["add", "mul"], index=0, help="'add' для стабільного росту, 'mul' для прискореного")
-    
-    forecast_steps = st.slider("Період прогнозу (міс)", 1, 12, 6, help="На скільки місяців вперед робити прогноз? (таблиця)")
-    
-    run_btn = st.button("🔴 Розрахувати Прогноз")
-
-with col_main2:
-    if run_btn:
-        # Підготовка даних
-        df_prod = df[df['Product_Name'] == target_product].set_index('Date')['Price']
-        # Важливо: Holt-Winters вимагає строгої частоти без пропусків
-        df_prod = df_prod.asfreq('MS').fillna(method='ffill')
-
-        try:
-            # Розбиття на тест/трейн
-            test_size = 6
-            if len(df_prod) > test_size * 2:
-                train, test = df_prod[:-test_size], df_prod[-test_size:]
-            else:
-                train, test = df_prod, None
-
-            st.subheader(f"Результат ({model_type}): {target_product}")
-
-            # --- ЛОГІКА МОДЕЛЕЙ ---
-            if model_type == "ARIMA (Класичний)":
-                model = ARIMA(train, order=(p, d, q))
-                model_fit = model.fit()
-                # Прогноз на тест
-                if test is not None:
-                    preds_test = model_fit.forecast(steps=len(test))
-                # Фінальний прогноз
-                final_model = ARIMA(df_prod, order=(p, d, q))
-                final_fit = final_model.fit()
-                future_forecast = final_fit.forecast(steps=forecast_steps)
-
-            elif model_type == "SARIMA (Сезонний)":
-                # SARIMAX приймає order=(p,d,q) і seasonal_order=(P,D,Q,s)
-                model = SARIMAX(train, order=(p, d, q), seasonal_order=(P, D, Q, s))
-                model_fit = model.fit(disp=False)
-                if test is not None: preds_test = model_fit.forecast(steps=len(test))
-
-                # Фінальний прогноз
-                final_model = SARIMAX(df_prod, order=(p, d, q), seasonal_order=(P, D, Q, s))
-                final_fit = final_model.fit(disp=False)
-                future_forecast = final_fit.forecast(steps=forecast_steps)
-
-            else: # Holt-Winters
-                # 'add' - адитивний (звичайний), 'mul' - мультиплікативний (складний відсоток)
-                seasonal_type = 'add' 
-                
-                model = ExponentialSmoothing(
-                    train, 
-                    trend=trend_type, 
-                    seasonal=seasonal_type, 
-                    seasonal_periods=seasonal_periods
-                )
-                model_fit = model.fit()
-                
-                # Прогноз на тест
-                if test is not None:
-                    preds_test = model_fit.forecast(steps=len(test))
-                
-                # Фінальний прогноз
-                final_model = ExponentialSmoothing(
-                    df_prod, 
-                    trend=trend_type, 
-                    seasonal=seasonal_type, 
-                    seasonal_periods=seasonal_periods
-                )
-                final_fit = final_model.fit()
-                future_forecast = final_fit.forecast(steps=forecast_steps)
-
-            # --- ВІДОБРАЖЕННЯ РЕЗУЛЬТАТІВ (Спільне для обох моделей) ---
+        # Параметри змінюються залежно від моделі
+        if model_type == "ARIMA (Класичний)":
+            # p - Autoregression
+            p = st.number_input(
+                "p (AR - Пам'ять)", 
+                min_value=0, max_value=24, value=2,
+                help="На скільки місяців назад дивитися? \n\n"
+                    "• 1-2: Ціна залежить від останніх місяців.\n"
+                    "• 12: Ціна повторює минулорічну (сезонність)."
+            )
             
-            # Метрики точності
-            if test is not None:
-                mae = mean_absolute_error(test, preds_test)
-                mape = np.mean(np.abs(preds_test - test) / np.abs(test)) * 100
-                
-                m1, m2 = st.columns(2)
-                m1.metric("MAE (Похибка в грн)", f"{mae:.2f}")
-                m2.metric("MAPE (Похибка в %)", f"{mape:.2f}%")
-                
-                # Пояснення для користувача
-                if mape < 5:
-                    st.success("✅ Висока точність прогнозу!")
-                elif mape < 15:
-                    st.warning("⚠️ Середня точність. Можливі відхилення.")
-                else:
-                    st.error("❌ Низька точність. Спробуйте іншу модель або параметри.")
-
-            # --- СУЧАСНИЙ ГРАФІК (PLOTLY) ---
-            st.subheader("Інтерактивний графік")
+            # d - Integration
+            d = st.number_input(
+                "d (I - Тренд)", 
+                min_value=0, max_value=2, value=1,
+                help="Як поводиться ціна глобально?\n\n"
+                    "• 0: Ціна стабільна (коливається навколо однієї суми).\n"
+                    "• 1: Ціна постійно росте або падає (стандарт для інфляції).\n"
+                    "• 2: Швидкий, прискорений ріст."
+            )
             
-            fig = go.Figure()
-
-            # 1. Історичні дані
-            # Показуємо всю історію, але за замовчуванням зум буде на останні роки
-            fig.add_trace(go.Scatter(
-                x=df_prod.index, 
-                y=df_prod.values,
-                mode='lines',
-                name='Історичні дані',
-                line=dict(color='royalblue', width=2)
-            ))
-
-            # 2. Тестовий прогноз (якщо є)
-            if test is not None:
-                fig.add_trace(go.Scatter(
-                    x=test.index, 
-                    y=preds_test,
-                    mode='lines+markers',
-                    name='Тест (перевірка)',
-                    line=dict(color='orange', width=2, dash='dot'),
-                    marker=dict(size=6)
-                ))
-
-            # 3. Прогноз на майбутнє
-            fig.add_trace(go.Scatter(
-                x=future_forecast.index, 
-                y=future_forecast.values,
-                mode='lines+markers',
-                name=f'ПРОГНОЗ ({model_type})',
-                line=dict(color='red', width=3),
-                marker=dict(size=8, symbol='circle')
-            ))
-
-            # Налаштування макету (Layout)
-            fig.update_layout(
-                title=f"Прогноз ціни: {target_product}",
-                xaxis_title="Дата",
-                yaxis_title="Ціна (грн)",
-                hovermode="x unified", # Зручна підказка при наведенні
-                legend=dict(
-                    yanchor="top",
-                    y=0.99,
-                    xanchor="left",
-                    x=0.01
-                ),
-                # Слайдер діапазону знизу
-                xaxis=dict(
-                    rangeselector=dict(
-                        buttons=list([
-                            dict(count=6, label="6 міс", step="month", stepmode="backward"),
-                            dict(count=1, label="1 рік", step="year", stepmode="backward"),
-                            dict(count=3, label="3 роки", step="year", stepmode="backward"),
-                            dict(step="all", label="Вся історія")
-                        ])
-                    ),
-                    rangeslider=dict(visible=True), # Повзунок
-                    type="date"
-                )
+            # q - Moving Average
+            q = st.number_input(
+                "q (MA - Згладжування)", 
+                min_value=0, max_value=24, value=2,
+                help="Як реагувати на раптові стрибки?\n\n"
+                    "• 0: Реагувати миттєво (графік рваний).\n"
+                    "• 1-3: Згладжувати випадкові коливання."
             )
 
-            # Відображення в Streamlit
-            st.plotly_chart(fig, use_container_width=True)
+            with st.expander("ℹ️ Як підібрати параметри? (Шпаргалка)"):
+                st.markdown("""
+                * **Для стабільних товарів:** p=1, d=0, q=1
+                * **Для товарів, що дорожчають (інфляція):** p=2, d=1, q=2
+                * **Для сезонних (овочі/фрукти):** Спробуйте збільшити p до 12.
+                """)
 
-            #Таблиця
-            with st.expander("Переглянути точні цифри прогнозу"):
-                # Створюємо чистий DataFrame, форматуємо дату без часу
-                res_df = pd.DataFrame({
-                    'Дата': future_forecast.index.strftime('%Y-%m-%d'), 
-                    'Прогнозована ціна': future_forecast.values
-                })
-                res_df.index = range(1, len(res_df) + 1)
-                res_df.index.name = "№"
-                # Явно вказуємо порядок колонок та формат
-                st.dataframe(res_df.style.format({"Прогнозована ціна": "{:.2f}"}), use_container_width=True)
+        elif model_type == "SARIMA (Сезонний)":
+            st.info("Налаштування складаються з двох частин: Звичайні та Сезонні (Річні).")
+            
+            col_s1, col_s2 = st.columns(2)
+            with col_s1:
+                st.markdown("**Звичайні (p,d,q)**")
+                p = st.number_input("p", 0, 5, 1, key="sp", help="Як поточний місяць залежить від попереднього.")
+                d = st.number_input("d", 0, 2, 1, key="sd", help="Чи є загальний тренд росту/спаду?")
+                q = st.number_input("q", 0, 5, 1, key="sq", help="Корекція помилок минулого місяця.")
+            
+            with col_s2:
+                st.markdown("**Сезонні (P,D,Q)**")
+                P = st.number_input("P (Сезонний)", 0, 5, 1, help="Зв'язок з цим же місяцем минулого року.")
+                D = st.number_input("D (Сезонний)", 0, 2, 1, help="Чи змінюється сезонність з роками?")
+                Q = st.number_input("Q (Сезонний)", 0, 5, 0, help="Корекція сезонних викидів.")
+                s = st.number_input("s (Період)", 2, 24, 12, help="12 для місячних даних (річний цикл).")
 
-            # Таблиця та Завантаження
-            with st.expander("Переглянути точні цифри та завантажити"):
-                res_df = pd.DataFrame({
-                    'Дата': future_forecast.index.strftime('%Y-%m-%d'), 
-                    'Прогнозована ціна': future_forecast.values
-                })
-                res_df.index = range(1, len(res_df) + 1)
-                res_df.index.name = "№"
+        else:
+            # Для Holt-Winters параметри простіші
+            seasonal_periods = st.slider("Сезонність (міс)", 6, 24, 12, help="12 для річної сезонності")
+            trend_type = st.selectbox("Тип тренду", ["add", "mul"], index=0, help="'add' для стабільного росту, 'mul' для прискореного")
+        
+        forecast_steps = st.slider("Період прогнозу (міс)", 1, 12, 6, help="На скільки місяців вперед робити прогноз? (таблиця)")
+        
+        run_btn = st.button("🔴 Розрахувати Прогноз")
+
+    with col_main2:
+        if run_btn:
+            # Підготовка даних
+            df_prod = df[df['Product_Name'] == target_product].set_index('Date')['Price']
+            # Важливо: Holt-Winters вимагає строгої частоти без пропусків
+            df_prod = df_prod.asfreq('MS').fillna(method='ffill')
+
+            # --- БЛОК ДЕКОМПОЗИЦІЇ (РЕНТГЕН) ---
+            with st.expander("🔍 Рентген ціни: Тренд vs Сезонність"):
+                st.write("Розкладаємо ціну на складові, щоб зрозуміти причини змін.")
+                try:
+                    # model='additive' для звичайних цін, 'multiplicative' якщо ріст дуже швидкий
+                    result = seasonal_decompose(df_prod, model='additive')
+                    
+                    # Малюємо 3 графіки
+                    fig_decomp = plt.figure(figsize=(10, 8))
+                    
+                    plt.subplot(411)
+                    plt.plot(result.observed, label='Реальна ціна')
+                    plt.legend(loc='upper left')
+                    
+                    plt.subplot(412)
+                    plt.plot(result.trend, label='Чистий тренд (Інфляція)', color='orange')
+                    plt.legend(loc='upper left')
+                    
+                    plt.subplot(413)
+                    plt.plot(result.seasonal, label='Сезонність (Повтори)', color='green')
+                    plt.legend(loc='upper left')
+                    
+                    plt.subplot(414)
+                    plt.plot(result.resid, label='Випадкові стрибки (Шум)', color='grey')
+                    plt.legend(loc='upper left')
+                    
+                    plt.tight_layout()
+                    st.pyplot(fig_decomp)
+                    
+                except Exception as e:
+                    st.warning(f"Не вдалося побудувати декомпозицію (замало даних): {e}")
+                    
+            # --- БЛОК ПРОГНОЗУ ---
+            try:
+                # Розбиття на тест/трейн
+                test_size = 6
+                if len(df_prod) > test_size * 2:
+                    train, test = df_prod[:-test_size], df_prod[-test_size:]
+                else:
+                    train, test = df_prod, None
+
+                st.subheader(f"Результат ({model_type}): {target_product}")
+
+                # --- ЛОГІКА МОДЕЛЕЙ ---
+                if model_type == "ARIMA (Класичний)":
+                    model = ARIMA(train, order=(p, d, q))
+                    model_fit = model.fit()
+                    # Прогноз на тест
+                    if test is not None:
+                        preds_test = model_fit.forecast(steps=len(test))
+                    # Фінальний прогноз
+                    final_model = ARIMA(df_prod, order=(p, d, q))
+                    final_fit = final_model.fit()
+                    future_forecast = final_fit.forecast(steps=forecast_steps)
+
+                elif model_type == "SARIMA (Сезонний)":
+                    # SARIMAX приймає order=(p,d,q) і seasonal_order=(P,D,Q,s)
+                    model = SARIMAX(train, order=(p, d, q), seasonal_order=(P, D, Q, s))
+                    model_fit = model.fit(disp=False)
+                    if test is not None: preds_test = model_fit.forecast(steps=len(test))
+
+                    # Фінальний прогноз
+                    final_model = SARIMAX(df_prod, order=(p, d, q), seasonal_order=(P, D, Q, s))
+                    final_fit = final_model.fit(disp=False)
+                    future_forecast = final_fit.forecast(steps=forecast_steps)
+
+                else: # Holt-Winters
+                    # 'add' - адитивний (звичайний), 'mul' - мультиплікативний (складний відсоток)
+                    seasonal_type = 'add' 
+                    
+                    model = ExponentialSmoothing(
+                        train, 
+                        trend=trend_type, 
+                        seasonal=seasonal_type, 
+                        seasonal_periods=seasonal_periods
+                    )
+                    model_fit = model.fit()
+                    
+                    # Прогноз на тест
+                    if test is not None:
+                        preds_test = model_fit.forecast(steps=len(test))
+                    
+                    # Фінальний прогноз
+                    final_model = ExponentialSmoothing(
+                        df_prod, 
+                        trend=trend_type, 
+                        seasonal=seasonal_type, 
+                        seasonal_periods=seasonal_periods
+                    )
+                    final_fit = final_model.fit()
+                    future_forecast = final_fit.forecast(steps=forecast_steps)
+
+                # --- ВІДОБРАЖЕННЯ РЕЗУЛЬТАТІВ (Спільне для обох моделей) ---
                 
-                # Показуємо таблицю
-                st.dataframe(res_df.style.format({"Прогнозована ціна": "{:.2f}"}), use_container_width=True)
+                # Метрики точності
+                if test is not None:
+                    mae = mean_absolute_error(test, preds_test)
+                    mape = np.mean(np.abs(preds_test - test) / np.abs(test)) * 100
+                    
+                    m1, m2 = st.columns(2)
+                    m1.metric("MAE (Похибка в грн)", f"{mae:.2f}")
+                    m2.metric("MAPE (Похибка в %)", f"{mape:.2f}%")
+                    
+                    # Пояснення для користувача
+                    if mape < 5:
+                        st.success("✅ Висока точність прогнозу!")
+                    elif mape < 15:
+                        st.warning("⚠️ Середня точність. Можливі відхилення.")
+                    else:
+                        st.error("❌ Низька точність. Спробуйте іншу модель або параметри.")
+
+                # --- СУЧАСНИЙ ГРАФІК (PLOTLY) ---
+                st.subheader("Інтерактивний графік")
                 
-                # --- НОВЕ: Кнопка завантаження ---
-                # Конвертуємо в CSV
-                csv_data = res_df.to_csv().encode('utf-8')
-                
-                st.download_button(
-                    label="📥 Завантажити прогноз (CSV)",
-                    data=csv_data,
-                    file_name=f'forecast_{target_product}.csv',
-                    mime='text/csv',
-                    help="Натисніть, щоб зберегти таблицю для Excel"
+                fig = go.Figure()
+
+                # 1. Історичні дані
+                # Показуємо всю історію, але за замовчуванням зум буде на останні роки
+                fig.add_trace(go.Scatter(
+                    x=df_prod.index, 
+                    y=df_prod.values,
+                    mode='lines',
+                    name='Історичні дані',
+                    line=dict(color='royalblue', width=2)
+                ))
+
+                # 2. Тестовий прогноз (якщо є)
+                if test is not None:
+                    fig.add_trace(go.Scatter(
+                        x=test.index, 
+                        y=preds_test,
+                        mode='lines+markers',
+                        name='Тест (перевірка)',
+                        line=dict(color='orange', width=2, dash='dot'),
+                        marker=dict(size=6)
+                    ))
+
+                # 3. Прогноз на майбутнє
+                fig.add_trace(go.Scatter(
+                    x=future_forecast.index, 
+                    y=future_forecast.values,
+                    mode='lines+markers',
+                    name=f'ПРОГНОЗ ({model_type})',
+                    line=dict(color='red', width=3),
+                    marker=dict(size=8, symbol='circle')
+                ))
+
+                # Налаштування макету (Layout)
+                fig.update_layout(
+                    title=f"Прогноз ціни: {target_product}",
+                    xaxis_title="Дата",
+                    yaxis_title="Ціна (грн)",
+                    hovermode="x unified", # Зручна підказка при наведенні
+                    legend=dict(
+                        yanchor="top",
+                        y=0.99,
+                        xanchor="left",
+                        x=0.01
+                    ),
+                    # Слайдер діапазону знизу
+                    xaxis=dict(
+                        rangeselector=dict(
+                            buttons=list([
+                                dict(count=6, label="6 міс", step="month", stepmode="backward"),
+                                dict(count=1, label="1 рік", step="year", stepmode="backward"),
+                                dict(count=3, label="3 роки", step="year", stepmode="backward"),
+                                dict(step="all", label="Вся історія")
+                            ])
+                        ),
+                        rangeslider=dict(visible=True), # Повзунок
+                        type="date"
+                    )
                 )
 
-        except Exception as e:
-            st.error(f"Помилка розрахунку: {e}. Спробуйте змінити параметри або тип тренду.")
+                # Відображення в Streamlit
+                st.plotly_chart(fig, use_container_width=True)
+
+                #Таблиця
+                with st.expander("Переглянути точні цифри прогнозу"):
+                    # Створюємо чистий DataFrame, форматуємо дату без часу
+                    res_df = pd.DataFrame({
+                        'Дата': future_forecast.index.strftime('%Y-%m-%d'), 
+                        'Прогнозована ціна': future_forecast.values
+                    })
+                    res_df.index = range(1, len(res_df) + 1)
+                    res_df.index.name = "№"
+                    # Явно вказуємо порядок колонок та формат
+                    st.dataframe(res_df.style.format({"Прогнозована ціна": "{:.2f}"}), use_container_width=True)
+
+                # Таблиця та Завантаження
+                with st.expander("Переглянути точні цифри та завантажити"):
+                    res_df = pd.DataFrame({
+                        'Дата': future_forecast.index.strftime('%Y-%m-%d'), 
+                        'Прогнозована ціна': future_forecast.values
+                    })
+                    res_df.index = range(1, len(res_df) + 1)
+                    res_df.index.name = "№"
+                    
+                    # Показуємо таблицю
+                    st.dataframe(res_df.style.format({"Прогнозована ціна": "{:.2f}"}), use_container_width=True)
+                    
+                    # --- НОВЕ: Кнопка завантаження ---
+                    # Конвертуємо в CSV
+                    csv_data = res_df.to_csv().encode('utf-8')
+                    
+                    st.download_button(
+                        label="📥 Завантажити прогноз (CSV)",
+                        data=csv_data,
+                        file_name=f'forecast_{target_product}.csv',
+                        mime='text/csv',
+                        help="Натисніть, щоб зберегти таблицю для Excel"
+                    )
+
+            except Exception as e:
+                st.error(f"Помилка розрахунку: {e}. Спробуйте змінити параметри або тип тренду.")
+        
+    st.markdown("---")
+with tab3:
+    st.header("ℹ️ Інформація про Додаток")
+    st.markdown("""
+    Цей додаток дозволяє аналізувати історичні ціни на товари та прогнозувати їх за допомогою різних моделей часових рядів.
     
-st.markdown("---")
+    **Основні функції:**
+    - Завантаження даних з CSV файлів або використання вбудованих шаблонів.
+    - Фільтрація даних за регіонами України.
+    - Візуалізація історичних цін.
+    - Прогнозування цін за допомогою моделей ARIMA, SARIMA та Holt-Winters.
+    - Оцінка точності прогнозів за допомогою MAE та MAPE.
+    - Завантаження результатів прогнозу у форматі CSV.
+
+    **Джерело даних:**  
+    Дані можна отримати з офіційного порталу Держстату України: [stat.gov.ua](https://stat.gov.ua/uk/explorer)
+
+    **Розробник:**  
+    Цей додаток створено для демонстрації можливостей аналізу часових рядів та прогнозування.
+
+    **Зворотній зв'язок:**  
+    Якщо у вас є пропозиції або питання, будь ласка, зв'яжіться зі мною через відповідні канали.
+    """)
+    st.markdown("---")
+    st.markdown("© 2025 Прогнозування цін на товари. Всі права захищені.")
