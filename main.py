@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.metrics import mean_absolute_error
 import warnings
@@ -174,7 +175,7 @@ if df is not None and not df.empty:
 
     
     # --- 3. ПРОГНОЗ ТА МОДЕЛЮВАННЯ ---
-st.header("3. Прогноз та Моделювання")
+st.header("Прогноз")
 
 col_main1, col_main2 = st.columns([1, 3])
 
@@ -184,10 +185,10 @@ with col_main1:
     st.markdown("---")
     st.markdown("**Налаштування Моделі**")
     
-    # --- ВИБІР МОДЕЛІ (НОВЕ) ---
+    # --- ВИБІР МОДЕЛІ ---
     model_type = st.selectbox(
         "Оберіть алгоритм прогнозу:",
-        ["ARIMA (Класичний)", "Holt-Winters (Трендовий)"]
+        ["ARIMA (Класичний)", "Holt-Winters (Трендовий)", "SARIMA (Сезонний професійний)"]
     )
     
     # Параметри змінюються залежно від моделі
@@ -227,12 +228,29 @@ with col_main1:
             * **Для сезонних (овочі/фрукти):** Спробуйте збільшити p до 12.
             """)
 
+    elif model_type == "SARIMA (Сезонний професійний)":
+        st.info("Налаштування складаються з двох частин: Звичайні та Сезонні (Річні).")
+        
+        col_s1, col_s2 = st.columns(2)
+        with col_s1:
+            st.markdown("**Звичайні (p,d,q)**")
+            p = st.number_input("p", 0, 5, 1, key="sp", help="Як поточний місяць залежить від попереднього.")
+            d = st.number_input("d", 0, 2, 1, key="sd", help="Чи є загальний тренд росту/спаду?")
+            q = st.number_input("q", 0, 5, 1, key="sq", help="Корекція помилок минулого місяця.")
+        
+        with col_s2:
+            st.markdown("**Сезонні (P,D,Q)**")
+            P = st.number_input("P (Сезонний)", 0, 5, 1, help="Зв'язок з цим же місяцем минулого року.")
+            D = st.number_input("D (Сезонний)", 0, 2, 1, help="Чи змінюється сезонність з роками?")
+            Q = st.number_input("Q (Сезонний)", 0, 5, 0, help="Корекція сезонних викидів.")
+            s = st.number_input("s (Період)", 2, 24, 12, help="12 для місячних даних (річний цикл).")
+
     else:
         # Для Holt-Winters параметри простіші
-        seasonal_periods = st.number_input("Сезонність (міс)", 6, 24, 12, help="12 для річної сезонності")
+        seasonal_periods = st.slider("Сезонність (міс)", 6, 24, 12, help="12 для річної сезонності")
         trend_type = st.selectbox("Тип тренду", ["add", "mul"], index=0, help="'add' для стабільного росту, 'mul' для прискореного")
     
-    forecast_steps = st.slider("Період прогнозу (міс)", 1, 12, 12)
+    forecast_steps = st.slider("Період прогнозу (міс)", 1, 12, 6, help="На скільки місяців вперед робити прогноз? (таблиця)")
     
     run_btn = st.button("🔴 Розрахувати Прогноз")
 
@@ -264,7 +282,18 @@ with col_main2:
                 final_model = ARIMA(df_prod, order=(p, d, q))
                 final_fit = final_model.fit()
                 future_forecast = final_fit.forecast(steps=forecast_steps)
-                
+
+            elif model_type == "SARIMA (Сезонний професійний)":
+                # SARIMAX приймає order=(p,d,q) і seasonal_order=(P,D,Q,s)
+                model = SARIMAX(train, order=(p, d, q), seasonal_order=(P, D, Q, s))
+                model_fit = model.fit(disp=False)
+                if test is not None: preds_test = model_fit.forecast(steps=len(test))
+
+                # Фінальний прогноз
+                final_model = SARIMAX(df_prod, order=(p, d, q), seasonal_order=(P, D, Q, s))
+                final_fit = final_model.fit(disp=False)
+                future_forecast = final_fit.forecast(steps=forecast_steps)
+
             else: # Holt-Winters
                 # 'add' - адитивний (звичайний), 'mul' - мультиплікативний (складний відсоток)
                 seasonal_type = 'add' 
