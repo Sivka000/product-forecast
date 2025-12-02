@@ -11,7 +11,9 @@ from statsmodels.tsa.arima.model import ARIMA
 from sklearn.metrics import mean_absolute_error
 import warnings
 import os
+import io
 
+# Ігноруємо попередження для чистоти виводу
 warnings.filterwarnings("ignore")
 
 # --- КОНФІГУРАЦІЯ СТОРІНКИ ---
@@ -170,15 +172,21 @@ with tab1:
         # Перевірка на пропуски
         missing_count = df['Price'].isna().sum()
         if missing_count > 0:
-            st.warning(f"Знайдено {missing_count} пропусків у цінах. Виправлено!")
+            with st.expander("⚠️ Виявлено пропуски в даних"):
+                st.warning(f"Знайдено {missing_count} пропусків у цінах. Виправлено!")
             df['Price'] = df.groupby('Product_Name')['Price'].fillna(method='ffill')
             # Якщо на початку є пропуски, заповнюємо 'bfill'
             df['Price'] = df.groupby('Product_Name')['Price'].fillna(method='bfill')
         
         # Вибір продуктів для візуалізації
         all_products = df['Product_Name'].unique()
-        selected_products_viz = st.multiselect("Оберіть продукти для порівняння графіків:", all_products, default=all_products[:2])
-        
+        selected_products_viz = st.multiselect(
+            "Оберіть продукти для порівняння графіків (макс: 10):", 
+            all_products, 
+            default=all_products[:2] if len(all_products) > 1 else all_products,
+            max_selections=10
+        )
+
         if selected_products_viz:
             fig, ax = plt.subplots(figsize=(10, 5))
             sns.lineplot(data=df[df['Product_Name'].isin(selected_products_viz)], x='Date', y='Price', hue='Product_Name', ax=ax)
@@ -267,47 +275,20 @@ with tab2:
         
         forecast_steps = st.slider("Період прогнозу (міс)", 1, 12, 6, help="На скільки місяців вперед робити прогноз? (таблиця)")
         
-        run_btn = st.button("🔴 Розрахувати Прогноз")
+        # FIX №4: Використання Session State для кнопки
+        if 'forecast_active' not in st.session_state:
+            st.session_state.forecast_active = False
+
+        if st.button("🔴 Розрахувати Прогноз"):
+            st.session_state.forecast_active = True
 
     with col_main2:
-        if run_btn:
+        if st.session_state.forecast_active:
             # Підготовка даних
             df_prod = df[df['Product_Name'] == target_product].set_index('Date')['Price']
             # Важливо: Holt-Winters вимагає строгої частоти без пропусків
             df_prod = df_prod.asfreq('MS').fillna(method='ffill')
 
-            # --- БЛОК ДЕКОМПОЗИЦІЇ (РЕНТГЕН) ---
-            with st.expander("🔍 Рентген ціни: Тренд vs Сезонність"):
-                st.write("Розкладаємо ціну на складові, щоб зрозуміти причини змін.")
-                try:
-                    # model='additive' для звичайних цін, 'multiplicative' якщо ріст дуже швидкий
-                    result = seasonal_decompose(df_prod, model='additive')
-                    
-                    # Малюємо 3 графіки
-                    fig_decomp = plt.figure(figsize=(10, 8))
-                    
-                    plt.subplot(411)
-                    plt.plot(result.observed, label='Реальна ціна')
-                    plt.legend(loc='upper left')
-                    
-                    plt.subplot(412)
-                    plt.plot(result.trend, label='Чистий тренд (Інфляція)', color='orange')
-                    plt.legend(loc='upper left')
-                    
-                    plt.subplot(413)
-                    plt.plot(result.seasonal, label='Сезонність (Повтори)', color='green')
-                    plt.legend(loc='upper left')
-                    
-                    plt.subplot(414)
-                    plt.plot(result.resid, label='Випадкові стрибки (Шум)', color='grey')
-                    plt.legend(loc='upper left')
-                    
-                    plt.tight_layout()
-                    st.pyplot(fig_decomp)
-                    
-                except Exception as e:
-                    st.warning(f"Не вдалося побудувати декомпозицію (замало даних): {e}")
-                    
             # --- БЛОК ПРОГНОЗУ ---
             try:
                 # Розбиття на тест/трейн
@@ -316,7 +297,8 @@ with tab2:
                     train, test = df_prod[:-test_size], df_prod[-test_size:]
                 else:
                     train, test = df_prod, None
-
+                
+                steps_count = int(forecast_steps)
                 st.subheader(f"Результат ({model_type}): {target_product}")
 
                 # --- ЛОГІКА МОДЕЛЕЙ ---
@@ -453,17 +435,37 @@ with tab2:
                 # Відображення в Streamlit
                 st.plotly_chart(fig, use_container_width=True)
 
-                #Таблиця
-                with st.expander("Переглянути точні цифри прогнозу"):
-                    # Створюємо чистий DataFrame, форматуємо дату без часу
-                    res_df = pd.DataFrame({
-                        'Дата': future_forecast.index.strftime('%Y-%m-%d'), 
-                        'Прогнозована ціна': future_forecast.values
-                    })
-                    res_df.index = range(1, len(res_df) + 1)
-                    res_df.index.name = "№"
-                    # Явно вказуємо порядок колонок та формат
-                    st.dataframe(res_df.style.format({"Прогнозована ціна": "{:.2f}"}), use_container_width=True)
+                # --- БЛОК ДЕКОМПОЗИЦІЇ (РЕНТГЕН) ---
+                with st.expander("🔍 Рентген ціни: Тренд vs Сезонність"):
+                    st.write("Розкладаємо ціну на складові, щоб зрозуміти причини змін.")
+                    try:
+                        # model='additive' для звичайних цін, 'multiplicative' якщо ріст дуже швидкий
+                        result = seasonal_decompose(df_prod, model='additive')
+                        
+                        # Малюємо 3 графіки
+                        fig_decomp = plt.figure(figsize=(10, 8))
+                        
+                        plt.subplot(411)
+                        plt.plot(result.observed, label='Реальна ціна')
+                        plt.legend(loc='upper left')
+                        
+                        plt.subplot(412)
+                        plt.plot(result.trend, label='Чистий тренд (Інфляція)', color='orange')
+                        plt.legend(loc='upper left')
+                        
+                        plt.subplot(413)
+                        plt.plot(result.seasonal, label='Сезонність (Повтори)', color='green')
+                        plt.legend(loc='upper left')
+                        
+                        plt.subplot(414)
+                        plt.plot(result.resid, label='Випадкові стрибки (Шум)', color='grey')
+                        plt.legend(loc='upper left')
+                        
+                        plt.tight_layout()
+                        st.pyplot(fig_decomp)
+                        
+                    except Exception as e:
+                        st.warning(f"Не вдалося побудувати декомпозицію (замало даних): {e}")
 
                 # Таблиця та Завантаження
                 with st.expander("Переглянути точні цифри та завантажити"):
@@ -477,22 +479,23 @@ with tab2:
                     # Показуємо таблицю
                     st.dataframe(res_df.style.format({"Прогнозована ціна": "{:.2f}"}), use_container_width=True)
                     
-                    # --- НОВЕ: Кнопка завантаження ---
-                    # Конвертуємо в CSV
-                    csv_data = res_df.to_csv().encode('utf-8')
+                    # Експорт в Excel
+                    buffer = io.BytesIO()
+                    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                        res_df.to_excel(writer, sheet_name='Прогноз')
                     
                     st.download_button(
-                        label="📥 Завантажити прогноз (CSV)",
-                        data=csv_data,
-                        file_name=f'forecast_{target_product}.csv',
-                        mime='text/csv',
-                        help="Натисніть, щоб зберегти таблицю для Excel"
+                        label="📥 Завантажити таблицю (Excel .xlsx)",
+                        data=buffer.getvalue(),
+                        file_name=f'forecast_{target_product}.xlsx',
+                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                     )
 
             except Exception as e:
-                st.error(f"Помилка розрахунку: {e}. Спробуйте змінити параметри або тип тренду.")
-        
+                st.error(f"Помилка розрахунку: {e}. Спробуйте змінити параметри або тип тренду.")  
     st.markdown("---")
+
+# --- 4. ІНФОРМАЦІЯ ПРО ДОДАТОК ---
 with tab3:
     st.header("ℹ️ Інформація про Додаток")
     st.markdown("""
@@ -513,7 +516,7 @@ with tab3:
     Цей додаток створено для демонстрації можливостей аналізу часових рядів та прогнозування.
 
     **Зворотній зв'язок:**  
-    Якщо у вас є пропозиції або питання, будь ласка, зв'яжіться зі мною через відповідні канали.
+    Якщо у вас є пропозиції або питання, будь ласка, зв'яжіться зі мною ✉️email: stepchynv@gmail.com
     """)
     st.markdown("---")
     st.markdown("© 2025 Прогнозування цін на товари. Всі права захищені.")
